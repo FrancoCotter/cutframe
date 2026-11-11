@@ -1,26 +1,15 @@
-# Demo media
+# Demo media sources
 
-The default video is the complete **Tears of Steel** open movie, including its end credits.
+The default film is **Tears of Steel**, **(CC) Blender Foundation | mango.blender.org**, licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). See [the film's project page](https://mango.blender.org/about/).
 
-- Attribution: **(CC) Blender Foundation | mango.blender.org**.
-- Film and license: [Blender's project page](https://mango.blender.org/about/), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
-- Streaming media: [Google Shaka demo HLS source](https://storage.googleapis.com/shaka-demo-assets/tos/hls.m3u8), also referenced in the [Shaka demo asset catalogue](https://github.com/shaka-project/shaka-player/blob/main/demo/common/assets.js).
-- Real dialogue subtitles: [English](https://tears-of-steel-subtitles.s3.amazonaws.com/tears-en.vtt), [French](https://tears-of-steel-subtitles.s3.amazonaws.com/tears-fr.vtt), published as samples in [Mux's subtitles guide](https://www.mux.com/docs/guides/add-subtitles-to-your-videos).
+- **Video:** [Google Shaka public HLS demo stream](https://storage.googleapis.com/shaka-demo-assets/tos/hls.m3u8). The local master playlist references its seven video renditions and audio stream. The main film and end credits remain hosted remotely; this demo is not hosted on Mux.
+- **Subtitles:** [English](https://tears-of-steel-subtitles.s3.amazonaws.com/tears-en.vtt) and [French](https://tears-of-steel-subtitles.s3.amazonaws.com/tears-fr.vtt), provided as samples in [Mux's subtitles guide](https://www.mux.com/docs/guides/add-subtitles-to-your-videos).
+- **Poster:** a frame extracted from the film at 0:12.
+- **Time-lens preview:** a local silent derivative at 336 × 140, 24 fps, with a keyframe every half second. It follows the full film timeline without leading padding. This is an optional performance optimization for this demo; the skin can use the playback source directly.
+- **Chapters:** editorial WebVTT markers authored for this demo.
 
-The local `public/media/steel/master.m3u8` preserves all seven video renditions and the audio route, expanding references to absolute HTTPS URLs. It omits the source's unnamed embedded text track in favor of the two named WebVTT tracks above. It does not crop or shorten the film. Actual source dimensions range from 346×144 to 2592×1080; the skin uses their actual pixel heights for labels.
+Use `scripts/prepare-steel-demo.mjs` to refresh the manifest and subtitles, and `scripts/prepare-steel-preview.mjs` to regenerate the preview with FFmpeg.
 
-`public/media/steel-poster.jpg` is a frame extracted at 12 seconds. The opening contains a black lead-in, so the first frame would not make a useful cover. The poster is presentation artwork and does not replace or edit any part of the movie.
+Legacy Oceans assets are retained as development fixtures. Their public original is [Video.js's Oceans sample](https://vjs.zencdn.net/v/oceans.mp4).
 
-`public/media/steel/chapters.vtt` contains editorial navigation markers authored for this demo, not chapters inferred by AI. The English/French captions are dialogue tracks rather than the earlier placeholder chapter-label subtitles.
-
-The main film stays hosted by the public demo provider. Internet access is required during playback; its full-length HD files are not copied into this repository. The poster, captions, chapter markers and a small silent preview MP4 are local. The preview retains the full film timeline at 336×140 and 24 fps, with a keyframe every half second for fast range seeks. The preview and hls.js playback both start at the first video frame, with no leading padding. Cast uses the public full-film manifest rather than a localhost URL.
-
-To refresh the small manifest/subtitle files, run `node scripts/prepare-steel-demo.mjs`. Regenerate the poster with FFmpeg:
-
-```sh
-ffmpeg -ss 12 -i https://storage.googleapis.com/shaka-demo-assets/tos/stream_6.m3u8 -frames:v 1 -q:v 2 public/media/steel-poster.jpg
-```
-
-Regenerate the fast-seeking preview with `node scripts/prepare-steel-preview.mjs`. With the development server running, `http://127.0.0.1:5173/tests/browser-frame-check.html` exercises the actual lens at four timestamps and checks decoded times, nonblank canvas pixels and different frame hashes without screenshots.
-
-Code is Apache-2.0; that does not replace the media's own license. The older Oceans media remains available as a local development fallback and has its original third-party rights. This demo is not a video uploaded to the participant's Mux account and does not establish the Mux hosting bonus.
+Media retains its own rights and attribution. The code license is [Apache-2.0](LICENSE).
