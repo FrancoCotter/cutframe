@@ -1,4 +1,5 @@
 import { contrast, parseColor } from './palette.js';
+import { createLabBackdrop } from './lab-backdrop.js';
 
 const fonts = {
   sans: 'Arial, Helvetica, sans-serif',
@@ -7,7 +8,7 @@ const fonts = {
   humanist: '"Trebuchet MS", sans-serif',
   system: 'system-ui, sans-serif',
 };
-const defaults = { background: '#eceee8', text: '#25382c', accent: '#516344', font: 'sans', customFont: '', weight: '400', style: 'normal', spacing: '0', width: '1120' };
+const defaults = { background: '#eceee8', text: '#25382c', accent: '#516344', font: 'sans', customFont: '', weight: '400', style: 'normal', spacing: '0', width: '1120', backdrop: 'solid', themeSource: 'auto', sampleSize: '100', sampleInterval: '500', sampleStability: '1000', sampleDebug: 'off', transitionDuration: '1000' };
 const presets = {
   editorial: { ...defaults, background: '#f4eddf', text: '#382c46', accent: '#73418b', font: 'serif' },
   terminal: { ...defaults, background: '#111b19', text: '#d4e8dc', accent: '#7bc6a0', font: 'mono' },
@@ -18,10 +19,14 @@ const storageKey = 'cutframe-style-lab-v1';
 export function createStyleLab(page, surface) {
   const panel = document.getElementById('style-lab');
   const mount = document.getElementById('player-mount');
+  const backdrop = createLabBackdrop(page);
   let state = { ...defaults };
   let active = false;
   let profile;
   let reportFrame = 0;
+  let adapter;
+  let appliedSampling;
+  let appliedMotion;
   // Storage may be unavailable in private or embedded browser contexts.
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -31,6 +36,9 @@ export function createStyleLab(page, surface) {
       if (typeof saved.customFont === 'string' && CSS.supports('font-family', saved.customFont)) state.customFont = saved.customFont;
       if (['400', '500', '700', '900'].includes(saved.weight)) state.weight = saved.weight;
       if (['normal', 'italic'].includes(saved.style)) state.style = saved.style;
+      if (['solid', 'liquid', 'webgl', 'webgl-solid', 'webgl-light', 'webgl-dark', 'webgl-contrast', 'webgl-model'].includes(saved.backdrop)) state.backdrop = saved.backdrop;
+      if (['auto', 'host'].includes(saved.themeSource)) state.themeSource = saved.themeSource;
+      for (const [key, choices] of Object.entries({ sampleSize: ['60', '100', '160'], sampleInterval: ['500', '1000', '2000'], sampleStability: ['500', '1000', '2500'], sampleDebug: ['off', 'on'], transitionDuration: ['0', '600', '1000', '1600'] })) if (choices.includes(saved[key])) state[key] = saved[key];
       if (Number.isFinite(Number(saved.spacing))) state.spacing = String(Math.max(-.02, Math.min(.12, Number(saved.spacing))));
       if (Number.isFinite(Number(saved.width))) state.width = String(Math.max(320, Math.min(1120, Number(saved.width))));
     }
@@ -48,9 +56,18 @@ export function createStyleLab(page, surface) {
       <label class="lab-field">Font style<select name="style"><option value="normal">Normal</option><option value="italic">Italic</option></select></label>
       <label class="lab-field">Letter spacing <output data-value="spacing"></output><input name="spacing" type="range" min="-0.02" max="0.12" step="0.01"></label>
       <label class="lab-field">Player width <output data-value="width"></output><input name="width" type="range" min="320" max="1120" step="10"></label>
+      <label class="lab-field">Page backdrop<select name="backdrop"><option value="solid">Solid page · DOM/CSS</option><option value="liquid">Liquid motion · Canvas 2D</option><option value="webgl">Flow field · WebGL</option><option value="webgl-solid">Solid color · WebGL</option><option value="webgl-light">Near white · WebGL</option><option value="webgl-dark">Near black · WebGL</option><option value="webgl-contrast">Two-tone pattern · WebGL</option><option value="webgl-model">Lit 3D sphere · WebGL</option></select></label>
+      <label class="lab-field">Theme signals<select name="themeSource"><option value="auto">Automatic · pixels + page styles</option><option value="host">Manual color override</option></select></label>
     </div>
+    <details class="lab-sampling-controls"><summary>Sampling settings & region overlay</summary><div class="lab-fields">
+      <label class="lab-field">Patch size<select name="sampleSize"><option value="60">60 × 60 CSS px</option><option value="100">100 × 100 CSS px</option><option value="160">160 × 160 CSS px</option></select></label>
+      <label class="lab-field">Sample interval<select name="sampleInterval"><option value="500">Every 0.5 s</option><option value="1000">Every 1 s</option><option value="2000">Every 2 s</option></select></label>
+      <label class="lab-field">Change persistence<select name="sampleStability"><option value="500">Responsive · 0.5 s</option><option value="1000">Balanced · 1 s</option><option value="2500">Calm · 2.5 s</option></select></label>
+      <label class="lab-field">Show sample regions<select name="sampleDebug"><option value="off">Off</option><option value="on">On · top / bottom / left / right / center</option></select></label>
+      <label class="lab-field">Color transition<select name="transitionDuration"><option value="0">Instant</option><option value="600">Quick · 0.6 s</option><option value="1000">Smooth · 1 s</option><option value="1600">Slow · 1.6 s</option></select></label>
+    </div></details>
     <div class="lab-actions"><div class="lab-presets"><span>TRY</span><button type="button" data-preset="editorial">Editorial ↗</button><button type="button" data-preset="terminal">Terminal ↗</button><button type="button" data-preset="contrast">Low contrast ↗</button></div><button type="button" data-reset>Reset styles ↺</button></div>
-    <p class="lab-help">Edit the host page; the player adapts automatically. Unreadable colors may be replaced. Control sizes stay tuned for usability.</p>`;
+    <p class="lab-help">Automatic mode reads five background patches. Single-color, multicolor and 3D scenes use the same sampler. Color fields can explicitly override the result. Unreadable sources fall back safely.</p>`;
 
   const controls = [...panel.querySelectorAll('[name]')];
   controls.forEach(control => {
@@ -70,6 +87,15 @@ export function createStyleLab(page, surface) {
       page.style.setProperty(`--lab-${key}`, value);
     }
     mount.style.maxWidth = active ? `${state.width}px` : '';
+    backdrop.setMode(active ? state.backdrop : 'solid', state.background);
+    const sampling = { patchSize: Number(state.sampleSize), interval: Number(state.sampleInterval), settleMs: Number(state.sampleStability), debug: active && state.sampleDebug === 'on' };
+    const signature = JSON.stringify(sampling);
+    if (adapter && signature !== appliedSampling) { appliedSampling = signature; adapter.setSampling(sampling); }
+    if (adapter && state.transitionDuration !== appliedMotion) { appliedMotion = state.transitionDuration; adapter.setTransition({ duration: Number(state.transitionDuration) }); scheduleReport(); }
+    for (const [key, value] of Object.entries({ surface: state.background, foreground: state.text, accent: state.accent })) {
+      if (active && state.themeSource === 'host') page.style.setProperty(`--cutframe-host-${key}`, value);
+      else page.style.removeProperty(`--cutframe-host-${key}`);
+    }
     if (active) document.querySelector('meta[name="theme-color"]').content = state.background;
     syncControls();
     try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Keep the lab usable without persistence. */ }
@@ -94,12 +120,20 @@ export function createStyleLab(page, surface) {
     const results = page.querySelector('#lab-results');
     if (!active || !profile || !results) return;
     const type = getComputedStyle(surface.querySelector('.cf-time'));
+    const rendered = adapter?.renderedPalette || profile;
+    const motion = adapter?.transitionStats;
     const ratio = (a, b) => contrast(parseColor(a), parseColor(b));
-    const textRatio = ratio(profile.foreground, profile.surface);
-    const accentRatio = ratio(profile.accent, profile.surface);
-    const buttonRatio = ratio(profile.accentForeground, profile.accent);
+    const textRatio = ratio(rendered.foreground, rendered.surface);
+    const accentRatio = ratio(rendered.accent, rendered.surface);
+    const buttonRatio = ratio(rendered.accentForeground, rendered.accent);
     const pageRatio = ratio(state.text, state.background);
+    const scene = profile.scene || {};
+    const sampled = ['scene-sampled', 'scene-held'].includes(profile.strategy);
     const rows = [
+      ['Theme strategy', profile.strategy, profile.strategy === 'host-theme' ? 'Manual host colors · contrast checked' : sampled ? 'Five-region pixels · contrast checked' : profile.stable ? 'Unreadable backdrop · stable fallback' : 'Styles inferred from page DOM/CSS'],
+      ['Scene sampling', scene.status || 'initializing', scene.source || 'Automatic canvas discovery'],
+      ['Observed scene', scene.kind || 'No pixel classification', scene.pending ? 'Holding the previous palette until the change persists' : 'No pending palette change'],
+      ['Color transition', motion?.running ? 'Animating' : 'Idle · no animation RAF queued', `${adapter?.transition.duration ?? 1000} ms · latest color JS ${motion?.lastFrameMs ?? 0} ms (excludes deferred paint)`],
       ['Player text / surface', `${textRatio.toFixed(2)}:1`, textRatio >= 4.5 ? 'Meets 4.5:1' : 'Below 4.5:1'],
       ['Accent / surface', `${accentRatio.toFixed(2)}:1`, accentRatio >= 3 ? 'Meets 3:1' : 'Below 3:1'],
       ['Play button text / fill', `${buttonRatio.toFixed(2)}:1`, buttonRatio >= 4.5 ? 'Meets 4.5:1' : 'Below 4.5:1'],
@@ -112,13 +146,15 @@ export function createStyleLab(page, surface) {
     heading.textContent = 'What the player actually uses';
     const note = document.createElement('p');
     note.className = 'lab-result-note';
-    note.textContent = pageRatio < 4.5
+    note.textContent = sampled ? 'The skin uses actual background pixels from five patches. Bottom samples carry more weight; center reads the background canvas behind the video. Brief flashes and small color noise are held back.'
+      : pageRatio < 4.5
       ? `Page text is only ${pageRatio.toFixed(2)}:1. The player selects a readable alternative; see its actual colors below.`
+      : profile.stable ? `Complex backdrop: ${profile.backdropReasons.join('; ') || 'stable mode requested'}. ${profile.strategy === 'host-theme' ? 'Host theme signals supply the colors; contrast is checked against the opaque control surface.' : 'The player uses a stable opaque surface. Supply host theme signals to match the scene’s intended design.'}`
       : 'Live measurements of the adapted palette and rendered controls. These checks do not cover every accessibility requirement.';
     results.append(heading, note);
     const colors = document.createElement('div');
     colors.className = 'lab-result-colors';
-    for (const [label, color] of [['Surface', profile.surface], ['Text', profile.foreground], ['Accent', profile.accent]]) {
+    for (const [label, color] of [['Surface', rendered.surface], ['Text', rendered.foreground], ['Accent', rendered.accent]]) {
       const item = document.createElement('span');
       const swatch = document.createElement('i');
       swatch.style.backgroundColor = color;
@@ -126,6 +162,34 @@ export function createStyleLab(page, surface) {
       colors.append(item);
     }
     results.append(colors);
+    if (scene.regions?.length) {
+      const strip = document.createElement('div');
+      strip.className = 'lab-scene-regions';
+      for (const region of scene.regions) {
+        const patch = document.createElement('span');
+        const swatch = document.createElement('i');
+        swatch.style.backgroundColor = region.color;
+        patch.append(swatch, `${region.name} · ${Math.round(region.rect.width)}×${Math.round(region.rect.height)}`);
+        strip.append(patch);
+      }
+      const caption = document.createElement('p');
+      caption.className = 'lab-result-note';
+      caption.textContent = `Latest patch dominants · ${scene.resolution}×${scene.resolution} analysis pixels per patch`;
+      results.append(caption, strip);
+    }
+    if (scene.clusters?.length) {
+      const clusters = document.createElement('div');
+      clusters.className = 'lab-scene-clusters';
+      clusters.setAttribute('aria-label', 'Latest sampled color distribution');
+      for (const cluster of scene.clusters) {
+        const swatch = document.createElement('span');
+        swatch.style.backgroundColor = cluster.color;
+        swatch.style.flexGrow = String(cluster.share);
+        swatch.title = `${cluster.color} · ${Math.round(cluster.share * 100)}%`;
+        clusters.append(swatch);
+      }
+      results.append(clusters);
+    }
     const list = document.createElement('dl');
     for (const [label, value, detail] of rows) {
       const item = document.createElement('div');
@@ -145,6 +209,7 @@ export function createStyleLab(page, surface) {
   new ResizeObserver(scheduleReport).observe(surface);
   apply();
   return {
+    bindAdapter(value) { adapter = value; apply(); },
     setActive(value) { active = value; panel.hidden = !active; apply(); },
     report(value) { profile = value; scheduleReport(); },
   };

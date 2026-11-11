@@ -27,7 +27,7 @@
         <p>Same frame. Different worlds.</p>
         <span>Drag to explore. Arrow keys to seek.</span>
       </div>
-      <details class="palette-notes" data-palette-ignore><summary>How this player adapts</summary><p>Cutframe reads the page’s text, links, controls and surfaces. It groups similar colors, then chooses a readable palette by visual role and contrast. It does not average the page into one color or sample colors from the video.</p><span id="palette-count"></span><ul id="palette-proof"></ul></details>
+      <details class="palette-notes" data-palette-ignore><summary>How this player adapts</summary><p>Cutframe reads page styles and automatically looks for a readable background canvas. Five patches around and behind the player supply color groups; dominant colors shape the surface, secondary colors shape accents, and text is checked for contrast. Single-color scenes stay tonal. Persistent changes update the theme; brief flashes are held. Manual host colors take priority. Unreadable or unsupported sources use a stable fallback.</p><span id="palette-count"></span><ul id="palette-proof"></ul></details>
       <div class="credits" data-palette-ignore><span>Cutframe · Video.js v10</span><a href="https://mango.blender.org/about/" target="_blank" rel="noreferrer">Tears of Steel · Blender Foundation · CC BY 3.0 ↗</a></div>
     </main>
     <script type="module" src="/src/main.js"></script>

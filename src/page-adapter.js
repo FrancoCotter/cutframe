@@ -1,7 +1,38 @@
 import { choosePalette, parseColor } from './palette.js';
+import { resolveHostTheme } from './theme-policy.js';
+import { createBackdropSampler } from './backdrop-sampler.js';
+import { createPaletteMotion, paletteKeys } from './palette-motion.js';
 
 const excluded = '#player-mount, .cutframe-language, .cutframe-provider, .cutframe, .showcase-bar, [data-palette-ignore], script, style, template, video, canvas, iframe';
 const observationExcluded = `${excluded}, [data-cutframe-probe]`;
+
+/** Conservative hints only: no attempt to capture or interpret arbitrary rendered pixels. */
+export function inspectBackdrop(page, surface) {
+  const reasons = new Set();
+  const visible = el => {
+    const box = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) >= .1;
+  };
+  const inspect = el => {
+    if (el.closest('.cutframe-language, .cutframe-provider, .cutframe') || surface.contains(el) || !visible(el)) return;
+    if (el.getAttribute('data-cutframe-backdrop') === 'dynamic') reasons.add('Host-declared dynamic backdrop');
+    if (el.matches('canvas, video, iframe')) reasons.add(`${el.tagName.toLowerCase()} backdrop requires pixel sampling`);
+  };
+  Array.from(page.querySelectorAll('canvas, video, iframe, [data-cutframe-backdrop]')).slice(0, 64).forEach(inspect);
+  for (let el = page; el; el = el.parentElement) {
+    inspect(el);
+    // Background layers may be siblings of the content, rather than descendants.
+    for (const sibling of el.parentElement?.children || []) if (sibling !== el && sibling.matches('canvas, video, iframe, [data-cutframe-backdrop]')) inspect(sibling);
+    for (const pseudo of [null, '::before', '::after']) {
+      const style = getComputedStyle(el, pseudo);
+      if (pseudo && ['none', 'normal'].includes(style.content)) continue;
+      if (style.backgroundImage !== 'none') reasons.add('Image or gradient backdrop is not a solid surface');
+      if (style.mixBlendMode !== 'normal' || style.backdropFilter && style.backdropFilter !== 'none') reasons.add('Composited backdrop');
+    }
+  }
+  return [...reasons];
+}
 
 /** Read final computed page styles in an invisible, transition-free measurement copy. */
 export function samplePage(page) {
@@ -120,36 +151,137 @@ export function samplePage(page) {
   } finally { probe.remove(); }
 }
 
-export function createPageAdapter(page, surface, onAdapt = () => {}) {
+export function createPageAdapter(page, surface, onAdapt = () => {}, options = {}) {
   let pending = 0;
+  let timer = 0;
   let destroyed = false;
   let lastProfile;
+  let lastApplied = -Infinity;
+  let cached;
+  let reset = false;
+  let mode = options.mode === 'stable' ? 'stable' : 'auto';
+  let hostTheme = { ...options.theme };
+  let scene;
+  let sampler;
+  let samplingSettings = options.sampling === false ? { enabled: false } : { ...options.sampling };
+  const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  let inView = true;
+  const previousAnimation = surface.getAttribute('data-palette-animation');
+  surface.dataset.paletteAnimation = 'raf';
+  const colorToken = key => key === 'accentForeground' ? 'accent-foreground' : key;
+  const paletteMotion = createPaletteMotion(colors => {
+    for (const key of paletteKeys) {
+      const token = `--cutframe-${colorToken(key)}`;
+      if (surface.style.getPropertyValue(token) !== colors[key]) surface.style.setProperty(token, colors[key]);
+    }
+  }, options.transition, {
+    canAnimate: () => !document.hidden && inView && surface.isConnected && !motionPreference.matches,
+    onSettled: () => { if (!destroyed && lastProfile) onAdapt(lastProfile); },
+  });
+  const visibility = new IntersectionObserver(entries => {
+    inView = entries[0]?.isIntersecting ?? true;
+    if (!inView) paletteMotion.finish();
+  });
+  visibility.observe(surface);
+  const stopMotion = () => { if (document.hidden || motionPreference.matches) paletteMotion.finish(); };
+  document.addEventListener('visibilitychange', stopMotion);
+  motionPreference.addEventListener('change', stopMotion);
+  const interval = Math.max(100, Number(options.minInterval) || 250);
   const apply = () => {
     pending = 0;
-    const profile = samplePage(page);
+    if (destroyed) return;
+    if (reset) { cached = null; reset = false; }
+    const rootStyle = getComputedStyle(page);
+    const typeKey = [rootStyle.fontFamily, rootStyle.fontWeight, rootStyle.fontStyle, rootStyle.letterSpacing].join('|');
+    if (!cached || !cached.stable && !scene?.palette || cached.typeKey !== typeKey) {
+      const reasons = inspectBackdrop(page, surface);
+      cached = { sampled: samplePage(page), reasons, typeKey, stable: mode === 'stable' || reasons.length > 0 };
+    }
+    if (scene?.sourceElement?.isConnected && ['transparent-frame', 'empty-frame', 'blocked-origin', 'readback-failed'].includes(scene.status)) cached.stable = true;
+    const declared = {};
+    for (const [key, token] of Object.entries({ surface: 'surface', foreground: 'foreground', accent: 'accent', accentForeground: 'accent-foreground', muted: 'muted' })) {
+      declared[key] = rootStyle.getPropertyValue(`--cutframe-host-${token}`).trim();
+    }
+    const hasScene = mode === 'auto' && samplingSettings.enabled !== false && scene?.palette && (!scene.sourceElement || scene.sourceElement.isConnected);
+    const base = hasScene ? { ...cached.sampled, ...scene.palette } : cached.sampled;
+    const profile = resolveHostTheme(base, { ...declared, ...hostTheme }, cached.stable && !hasScene);
+    if (hasScene && profile.strategy !== 'host-theme') profile.strategy = scene.status === 'sampled' ? 'scene-sampled' : 'scene-held';
+    profile.backdropReasons = cached.reasons;
+    profile.stable = cached.stable && !hasScene;
+    const { sourceElement, palette, ...diagnostics } = scene || {};
+    profile.scene = { status: 'initializing', ...diagnostics };
+    if (palette) profile.scene.automaticPalette = Object.fromEntries(['surface', 'foreground', 'accent', 'accentForeground', 'muted'].map(key => [key, palette[key]]));
     const values = {
-      background: profile.background, surface: profile.surface, foreground: profile.foreground,
-      muted: profile.muted, accent: profile.accent, 'accent-foreground': profile.accentForeground,
       font: profile.font, 'font-weight': profile.fontWeight, 'font-style': profile.fontStyle,
       'letter-spacing': profile.letterSpacing, 'edge-width': `${profile.edgeWidth}px`,
     };
-    for (const [key, value] of Object.entries(values)) surface.style.setProperty(`--cutframe-${key}`, value);
-    surface.dataset.adaptation = 'page-styles';
+    for (const [key, value] of Object.entries(values)) if (surface.style.getPropertyValue(`--cutframe-${key}`) !== value) surface.style.setProperty(`--cutframe-${key}`, value);
+    paletteMotion.to(profile);
+    surface.dataset.adaptation = profile.strategy;
+    surface.dataset.backdropPolicy = hasScene ? 'sampled' : cached.stable ? 'stable' : 'inferred';
+    lastApplied = performance.now();
+    const changed = JSON.stringify(lastProfile) !== JSON.stringify(profile);
     lastProfile = profile;
-    onAdapt(profile);
+    if (changed) onAdapt(profile);
   };
-  const refresh = () => { if (!destroyed && !pending) pending = requestAnimationFrame(apply); };
+  const refresh = (request = {}) => {
+    if (destroyed) return;
+    reset ||= request.reset === true;
+    if (pending || timer) return;
+    const wait = Math.max(0, interval - (performance.now() - lastApplied));
+    if (wait) timer = setTimeout(() => { timer = 0; pending = requestAnimationFrame(apply); }, wait);
+    else pending = requestAnimationFrame(apply);
+  };
   const observer = new MutationObserver(records => {
     if (records.some(record => {
       if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node => node instanceof Element && node.matches('[data-cutframe-probe]'))) return false;
       const target = record.target instanceof Element ? record.target : record.target.parentElement;
       return target && !target.closest(observationExcluded);
-    })) refresh();
+    })) refresh({ reset: records.some(record =>
+      record.target === page && ['class', 'data-cutframe-backdrop'].includes(record.attributeName)
+      || record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element && (
+        node.matches('canvas, video, iframe, [data-cutframe-backdrop]') || node.querySelector('canvas, video, iframe, [data-cutframe-backdrop]')
+      ))
+    ) });
   });
-  observer.observe(page, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'lang'] });
-  const ancestors = new MutationObserver(refresh);
-  for (let parent = page.parentElement; parent; parent = parent.parentElement) ancestors.observe(parent, { attributes: true, attributeFilter: ['class', 'style', 'lang'] });
+  observer.observe(page, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'lang', 'data-cutframe-backdrop'] });
+  const ancestors = new MutationObserver(records => refresh({ reset: records.some(record => ['class', 'data-cutframe-backdrop'].includes(record.attributeName)) }));
+  for (let parent = page.parentElement; parent; parent = parent.parentElement) ancestors.observe(parent, { attributes: true, attributeFilter: ['class', 'style', 'lang', 'data-cutframe-backdrop'] });
   window.addEventListener('resize', refresh);
   document.fonts?.ready.then(refresh);
-  return { refresh, get profile() { return lastProfile; }, destroy() { destroyed = true; observer.disconnect(); ancestors.disconnect(); window.removeEventListener('resize', refresh); if (pending) cancelAnimationFrame(pending); } };
+  sampler = createBackdropSampler(page, surface, result => { scene = result; refresh(); }, { ...samplingSettings, enabled: mode !== 'stable' && samplingSettings.enabled !== false });
+  if (options.backdrop) sampler.setSource(options.backdrop);
+  return {
+    refresh,
+    setTheme(theme = {}) { hostTheme = { ...theme }; refresh(); },
+    setMode(value) {
+      if (!['auto', 'stable'].includes(value)) throw new TypeError('Adapter mode must be auto or stable.');
+      mode = value;
+      sampler.configure({ ...samplingSettings, enabled: mode !== 'stable' && samplingSettings.enabled !== false });
+      refresh({ reset: true });
+    },
+    setSampling(next = {}) {
+      samplingSettings = { ...samplingSettings, ...(typeof next === 'boolean' ? { enabled: next } : next) };
+      sampler.configure({ ...samplingSettings, enabled: mode !== 'stable' && samplingSettings.enabled !== false });
+      refresh();
+    },
+    setBackdrop(canvas = null) { scene = null; sampler.setSource(canvas); refresh(); },
+    captureBackdrop: canvas => sampler.capture(canvas),
+    get sampling() { return sampler.config; },
+    get samplingStats() { return sampler.stats; },
+    setTransition(next = {}) { paletteMotion.configure(typeof next === 'boolean' ? { duration: next ? 1000 : 0 } : next); },
+    get transition() { return paletteMotion.settings; },
+    get transitionStats() { return paletteMotion.stats; },
+    get renderedPalette() { return paletteMotion.current; },
+    get profile() { return lastProfile; },
+    destroy() {
+      destroyed = true;
+      paletteMotion.destroy(); visibility.disconnect(); sampler.destroy(); observer.disconnect(); ancestors.disconnect();
+      document.removeEventListener('visibilitychange', stopMotion); motionPreference.removeEventListener('change', stopMotion);
+      window.removeEventListener('resize', refresh);
+      if (previousAnimation === null) surface.removeAttribute('data-palette-animation');
+      else surface.setAttribute('data-palette-animation', previousAnimation);
+      if (pending) cancelAnimationFrame(pending); if (timer) clearTimeout(timer);
+    },
+  };
 }

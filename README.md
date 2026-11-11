@@ -12,6 +12,8 @@ The time lens brings a real video frame, chapter context when available, and pre
 
 The demo shows the same player adapting to **Journal**, **Studio**, and **Cinema** while playback continues.
 
+Open **Style Lab** (or `/?theme=lab`) to freely change the host page’s background, text, accent, font family, weight, italic style and letter spacing. Resize the player independently of the browser, try the low-contrast preset, and inspect the actual player palette, typography and contrast ratios below it. Lab settings are saved in this browser; Reset styles restores the starting point. Custom font stacks use locally installed fonts. Control sizes remain fixed for usability.
+
 ## How to use it
 
 ### Run the demo
@@ -68,6 +70,12 @@ CSS, icons, and Video.js element registration are included. Page adaptation is o
 **An additional preview MP4 is not required.** The time lens defaults to decoding the playback source, including HLS. You can optionally provide a time-aligned `previewSource` for faster, lighter previews. Remote sources must allow cross-origin playback and canvas access for previews.
 
 See [integration options](INTEGRATION.md) for posters, subtitles, chapters, language, and styling overrides. Cutframe has not been published to npm.
+
+## Dynamic backdrops
+
+Style Lab includes Canvas liquid motion, WebGL flow, a lit 3D sphere, solid-color WebGL, near-white/black fields and a two-tone pattern. One automatic sampler discovers readable background canvases and reads five 100×100 CSS-pixel patches around/behind the player, analyzed at 20×20 pixels each. Single-color scenes stay tonal; multicolor scenes provide dominant and secondary colors. Changes must persist before they replace the theme. The lab exposes region colors, color distributions, sampling settings and optional region outlines.
+
+The live report distinguishes `scene-sampled`, `scene-held`, `page-styles`, `stable-surface` and manual `host-theme`. New colors transition over one second, using a finite RAF animation that stops at rest and preserves contrast during intermediate frames. The lab exposes transition speed and idle state. Explicit overrides win; unreadable sources fall back safely. This does not measure a proven “90% coverage” rate or capture arbitrary browser-composited scenes. See [integration, motion controls and limitations](INTEGRATION.md).
 
 ## Sources and license
 

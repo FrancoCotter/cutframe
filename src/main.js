@@ -24,8 +24,10 @@ const adapter = createPageAdapter(page, player.surface, profile => {
     item.append(swatch, label);
     rows.append(item);
   }
-  document.getElementById('palette-count').textContent = `${profile.colorCount} page color groups · selected by role and contrast`;
+  document.getElementById('palette-count').textContent = `${profile.colorCount} page color groups · ${profile.strategy} · selected by role and contrast`;
 });
+
+styleLab.bindAdapter(adapter);
 
 function applyTheme(name) {
   name = Object.hasOwn(environments, name) ? name : 'paper';
@@ -39,7 +41,7 @@ function applyTheme(name) {
   styleLab.setActive(name === 'lab');
   document.querySelector('meta[name="theme-color"]').content = environment.color;
   document.querySelectorAll('[data-theme]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.theme === name)));
-  adapter.refresh();
+  adapter.refresh({ reset: true });
   const url = new URL(location.href);
   url.searchParams.set('theme', name);
   history.replaceState(null, '', url);

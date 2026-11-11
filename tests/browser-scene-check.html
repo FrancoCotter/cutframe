@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutframe scene sampling checks</title>
+<style>
+body{margin:0;isolation:isolate;font:14px Arial,sans-serif;background:#e9e9e9}#fixture{width:min(700px,calc(100% - 80px));margin:90px auto 20px}#fixture p{display:none}
+#scene{position:fixed;inset:0;width:100%;height:100%;z-index:-1}#run{position:fixed;top:20px;left:20px;z-index:4}pre{white-space:pre-wrap;background:#fff;color:#111;padding:20px;margin:20px}
+</style>
+<button id="run">Run five-region scene checks</button><main id="fixture"><p>Host text</p><div id="mount"></div></main><pre id="report" data-state="idle">Ready</pre>
+<script type="module">
+import { createCutframe, createPageAdapter } from '/src/cutframe.js';
+import { parseColor, contrast, colorDistance } from '/src/palette.js';
+const player=createCutframe(document.querySelector('#mount'),{source:'/media/steel/preview.mp4'});
+const adapter=createPageAdapter(document.querySelector('#fixture'),player.surface,()=>{}, {sampling:{interval:250,settleMs:250}});
+adapter.refresh();
+let canvas,context,gl,renderFrame,fill='#556b80',split=false;
+const report=document.querySelector('#report');
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const until=async(fn,label,timeout=7000)=>{const start=performance.now();while(!fn()){if(performance.now()-start>timeout)throw Error(label);await pause(40);}};
+const assert=(value,message)=>{if(!value)throw Error(message);};
+function setSource(type){
+ cancelAnimationFrame(renderFrame);gl?.getExtension('WEBGL_lose_context')?.loseContext();canvas?.remove();canvas=document.createElement('canvas');canvas.id='scene';canvas.width=800;canvas.height=600;document.body.prepend(canvas);
+ gl=type==='webgl'?canvas.getContext('webgl',{alpha:false}):null;context=type==='2d'?canvas.getContext('2d'):null;
+ if(type==='webgl'&&!gl)throw Error('WebGL unavailable');
+ const draw=()=>{
+  const c=parseColor(fill);
+  if(gl){gl.disable(gl.SCISSOR_TEST);gl.clearColor(c.r/255,c.g/255,c.b/255,1);gl.clear(gl.COLOR_BUFFER_BIT);
+   if(split){gl.enable(gl.SCISSOR_TEST);gl.scissor(canvas.width/2,0,canvas.width/2,canvas.height);gl.clearColor(.9,.7,.6,1);gl.clear(gl.COLOR_BUFFER_BIT);}}
+  else{context.clearRect(0,0,800,600);if(fill!=='transparent'){context.fillStyle=fill;context.fillRect(0,0,800,600);if(split){context.fillStyle='#e6b399';context.fillRect(400,0,400,600);}}}
+  renderFrame=requestAnimationFrame(draw);
+ };renderFrame=requestAnimationFrame(draw);
+}
+document.querySelector('#run').onclick=async()=>{
+ report.dataset.state='running';const rows=[];
+ const record=()=>report.textContent=JSON.stringify({state:'running',rows},null,2);
+ try{
+  window.scrollTo(0,0);const video=player.video,volume=video.volume,paused=video.paused;
+  for(const type of ['2d','webgl']){
+   fill='#556b80';split=false;setSource(type);
+   for(const color of ['#556b80','#ffffff','#000000']){
+    fill=color;
+    await until(()=>adapter.profile?.strategy==='scene-sampled'&&colorDistance(parseColor(adapter.profile.surface),parseColor(color))<3,type+' solid '+color);
+    assert(adapter.profile.scene.regions.length===5,'Missing regions');
+    assert(adapter.profile.scene.kind==='uniform','Solid scene treated as multicolor');
+    assert(contrast(parseColor(adapter.profile.foreground),parseColor(adapter.profile.surface))>=4.5,'Unreadable text');
+    assert(contrast(parseColor(adapter.profile.accent),parseColor(adapter.profile.surface))>=3,'Unreadable accent');
+    rows.push(type+' auto-discovered '+color+' → '+adapter.profile.surface+' (no renderer hook)');record();
+   }
+   split=true;fill='#281e44';
+   await until(()=>adapter.profile.scene.kind==='multicolor'&&adapter.profile.scene.clusters.length>1,type+' split distribution');
+   assert(colorDistance(parseColor(adapter.profile.scene.regions.find(region=>region.name==='left').color),parseColor('#281e44'))<3,'Left patch coordinate mapping');
+   assert(colorDistance(parseColor(adapter.profile.scene.regions.find(region=>region.name==='right').color),parseColor('#e6b399'))<3,'Right patch coordinate mapping');
+   rows.push(type+' two-tone scene retains distinct color groups');record();
+  }
+  adapter.setTheme({surface:'#153829',foreground:'#ffffff',accent:'#a4d7bc'});
+  await until(()=>adapter.profile.strategy==='host-theme'&&adapter.profile.surface==='#153829','Manual override');
+  adapter.setTheme();
+  await until(()=>adapter.profile.strategy==='scene-sampled','Return to auto');
+  rows.push('Manual override wins and can be removed');record();
+  const spacer=document.createElement('div');spacer.style.height='2000px';document.body.append(spacer);
+  window.scrollTo(0,Math.round(player.surface.getBoundingClientRect().bottom-60));
+  const partialReads=adapter.samplingStats.reads;
+  await until(()=>adapter.samplingStats.reads>partialReads,'Partially visible player stopped sampling');
+  assert(adapter.profile.strategy==='scene-sampled','Partially visible player lost its scene');
+  window.scrollTo(0,1400);await pause(100);
+  const offscreenReads=adapter.samplingStats.reads;await pause(650);
+  assert(adapter.samplingStats.reads===offscreenReads,'Offscreen player kept sampling');
+  spacer.remove();window.scrollTo(0,0);
+  rows.push('Offscreen players stop pixel reads');record();
+  setSource('2d');fill='transparent';split=false;
+  await until(()=>adapter.profile.scene.status==='transparent-frame','Transparent source not reported');
+  rows.push('Transparent frames report uncertainty rather than becoming black');record();
+  cancelAnimationFrame(renderFrame);
+  const foreign=new Image();
+  foreign.src=new URL('/media/steel-poster.jpg',location.origin.replace('127.0.0.1','localhost')).href;
+  await new Promise((resolve,reject)=>{foreign.onload=resolve;foreign.onerror=()=>reject(Error('Local cross-origin fixture image did not load'));});
+  context.drawImage(foreign,0,0,canvas.width,canvas.height);
+  await until(()=>adapter.profile.scene.status==='blocked-origin','Origin-tainted source not rejected');
+  rows.push('A real origin-tainted canvas reports blocked-origin with retry backoff');record();
+  adapter.setSampling(false);
+  await until(()=>adapter.profile.scene.status==='disabled','Sampling switch');
+  const reads=adapter.samplingStats.reads;await pause(600);
+  assert(adapter.samplingStats.reads===reads,'Disabled sampler kept reading');
+  assert(player.video===video&&video.volume===volume&&video.paused===paused,'Playback state changed');
+  assert(!document.querySelector('[data-cutframe-probe]'),'Leaked measurement copy');
+  rows.push('Sampling can be disabled; media element, volume and paused state are preserved');
+  adapter.destroy();const destroyedReads=adapter.samplingStats.reads;await pause(600);
+  assert(adapter.samplingStats.reads===destroyedReads,'Destroyed sampler kept reading');
+  cancelAnimationFrame(renderFrame);
+  report.dataset.state='passed';report.textContent=JSON.stringify({state:'passed',rows},null,2);
+ }catch(error){report.dataset.state='failed';report.textContent=JSON.stringify({state:'failed',error:error.message,profile:adapter.profile,rows},null,2);}
+};
+</script></html>
