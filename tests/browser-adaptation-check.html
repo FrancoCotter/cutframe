@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutframe adaptation checks</title>
+<style>
+  body { margin: 20px; font: 14px Arial, sans-serif; }
+  #fixture { width: min(1100px, 100%); background: #f4eddf; color: #382c46; font: 16px Georgia, serif; }
+  #fixture p { padding: 20px; }
+  #fixture a { color: #73418b; }
+  pre { white-space: pre-wrap; }
+</style>
+<button id="run">Run adaptation checks</button>
+<pre id="report" data-state="idle">Ready</pre>
+<main id="fixture"><p>A real host page. <a href="#fixture">A page accent</a></p><div id="mount"></div></main>
+<script type="module">
+  import { createCutframe, createPageAdapter } from '/src/cutframe.js';
+  import { contrast, parseColor } from '/src/palette.js';
+  const fixture = document.getElementById('fixture');
+  const report = document.getElementById('report');
+  const player = createCutframe(document.getElementById('mount'), { source: '/media/steel/preview.mp4' });
+  const adapter = createPageAdapter(fixture, player.surface);
+  adapter.refresh();
+  const assert = (value, message) => { if (!value) throw new Error(message); };
+  const settle = async () => { for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame); };
+  document.getElementById('run').onclick = async () => {
+    report.dataset.state = 'running';
+    const rows = [];
+    try {
+      fixture.removeAttribute('style');
+      fixture.querySelector('a').removeAttribute('style');
+      const video = player.video;
+      const volume = video.volume;
+      const time = video.currentTime;
+      const paused = video.paused;
+      await settle();
+      assert(adapter.profile.foreground === '#382c46', 'Host text color did not reach the player');
+      assert(adapter.profile.accent === '#73418b', 'Host link accent did not reach the player');
+      rows.push('Page colors are sampled by visual role.');
+      fixture.style.fontFamily = '"Courier New", monospace';
+      fixture.style.fontWeight = '700';
+      fixture.style.fontStyle = 'italic';
+      fixture.style.letterSpacing = '1.5px';
+      await settle();
+      for (const selector of ['.cf-time', '.cf-speed-content', '.cf-settings-row']) {
+        const type = getComputedStyle(player.surface.querySelector(selector));
+        assert(type.fontFamily.includes('Courier New'), `${selector} lost the host font`);
+        assert(type.fontWeight === '700' && type.fontStyle === 'italic' && type.letterSpacing === '1.5px', `${selector} lost host typography`);
+      }
+      rows.push('Controls and menus follow font family, weight, italic style and spacing.');
+      fixture.style.width = '320px';
+      await settle();
+      const controls = player.surface.querySelector('.cf-controls');
+      assert(getComputedStyle(controls).display === 'grid', 'Narrow embed did not use responsive controls');
+      assert(controls.scrollWidth <= controls.clientWidth + 1, 'Narrow controls overflow');
+      rows.push('A 320px embed responds to container width without control overflow.');
+      fixture.style.color = '#cccccc';
+      fixture.style.backgroundColor = '#eeeeee';
+      fixture.querySelector('a').style.color = '#dddddd';
+      await settle();
+      const palette = adapter.profile;
+      assert(contrast(parseColor(palette.foreground), parseColor(palette.surface)) >= 4.5, 'Unreadable text fallback');
+      assert(contrast(parseColor(palette.accent), parseColor(palette.surface)) >= 3, 'Unreadable accent fallback');
+      rows.push('Low-contrast host colors receive readable player fallbacks.');
+      assert(player.video === video && video.volume === volume && video.paused === paused && video.currentTime === time, 'Adaptation replaced or reset playback');
+      assert(!document.querySelector('[data-cutframe-probe]'), 'Measurement clone leaked into the page');
+      rows.push('Adaptation preserves the media element, time, volume and paused state; no measurement copies remain.');
+      report.dataset.state = 'passed';
+      report.textContent = JSON.stringify({ state: 'passed', rows }, null, 2);
+    } catch (error) {
+      report.dataset.state = 'failed';
+      report.textContent = JSON.stringify({ state: 'failed', error: error.message, rows }, null, 2);
+    }
+  };
+</script>
+</html>

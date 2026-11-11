@@ -60,6 +60,15 @@ export function samplePage(page) {
     }
     const samples = [];
     const fonts = new Map([[rootStyle.fontFamily, 2]]);
+    const typography = new Map();
+    const addTypography = (style, weight) => {
+      const values = { font: style.fontFamily, fontWeight: style.fontWeight, fontStyle: style.fontStyle, letterSpacing: style.letterSpacing };
+      const key = JSON.stringify(values);
+      const sample = typography.get(key) || { ...values, weight: 0 };
+      sample.weight += weight;
+      typography.set(key, sample);
+    };
+    addTypography(rootStyle, 2);
     const edgeWidths = [];
     const add = (value, role, weight, source) => {
       const color = decode(value);
@@ -84,7 +93,10 @@ export function samplePage(page) {
       if (directText) {
         add(style.color, 'text', weight * (heading ? .75 : 1), `${label} text`);
         if (interactive || heading || badge) add(style.color, 'accent', weight * (interactive ? 1.8 : .8), `${label} text`);
-        if (!heading) fonts.set(style.fontFamily, (fonts.get(style.fontFamily) || 0) + weight);
+        if (!heading) {
+          fonts.set(style.fontFamily, (fonts.get(style.fontFamily) || 0) + weight);
+          addTypography(style, weight);
+        }
       }
       for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
         const thickness = parseFloat(style[`border${side}Width`]);
@@ -97,9 +109,11 @@ export function samplePage(page) {
       stops.forEach(color => add(color, 'surface', weight / Math.max(1, stops.length), `${label} gradient`));
     }
     const palette = choosePalette(samples, background);
+    const font = [...fonts].sort((a, b) => b[1] - a[1])[0]?.[0] || rootStyle.fontFamily;
+    const type = [...typography.values()].filter(sample => sample.font === font).sort((a, b) => b.weight - a.weight)[0];
     return {
       ...palette,
-      font: [...fonts].sort((a, b) => b[1] - a[1])[0]?.[0] || rootStyle.fontFamily,
+      font, fontWeight: type.fontWeight, fontStyle: type.fontStyle, letterSpacing: type.letterSpacing,
       edgeWidth: edgeWidths.length ? Math.min(3, Math.max(1, edgeWidths.sort((a, b) => a - b)[Math.floor(edgeWidths.length / 2)])) : 1,
       sampleCount: samples.length,
     };
@@ -116,7 +130,8 @@ export function createPageAdapter(page, surface, onAdapt = () => {}) {
     const values = {
       background: profile.background, surface: profile.surface, foreground: profile.foreground,
       muted: profile.muted, accent: profile.accent, 'accent-foreground': profile.accentForeground,
-      font: profile.font, 'edge-width': `${profile.edgeWidth}px`,
+      font: profile.font, 'font-weight': profile.fontWeight, 'font-style': profile.fontStyle,
+      'letter-spacing': profile.letterSpacing, 'edge-width': `${profile.edgeWidth}px`,
     };
     for (const [key, value] of Object.entries(values)) surface.style.setProperty(`--cutframe-${key}`, value);
     surface.dataset.adaptation = 'page-styles';

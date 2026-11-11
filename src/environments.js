@@ -1,4 +1,9 @@
 export const environments = {
+  lab: {
+    name: 'Style Lab', color: '#eceee8',
+    top: `<div class="lab-intro environment-layout"><p class="lab-eyebrow">THE ADAPTATION PLAYGROUND / 04</p><h1>Your style.<br><em>The same player.</em></h1><p>Change the page. Watch the frame follow.<br>One live player, an open-ended style test.</p></div>`,
+    bottom: `<div class="lab-bottom environment-layout"><div class="lab-specimen"><span class="lab-eyebrow">THE HOST PAGE</span><h2>A different point of view.</h2><p>This text shares the page’s font, weight and style. Links and buttons supply its accent. The player reads these rendered styles and chooses a readable palette.</p><a href="#player-mount">Watch the film ↗</a><a class="lab-sample-button" href="#player-mount">A little more motion ↗</a></div><section id="lab-results" class="lab-results" aria-label="Live adaptation results" data-palette-ignore></section></div>`,
+  },
   paper: {
     name: 'Journal', color: '#f2eee4',
     top: `<div class="journal-top environment-layout">

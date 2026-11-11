@@ -19,6 +19,10 @@
   background: var(--cf-ink);
   font: inherit;
   font-family: var(--cutframe-font, inherit);
+  font-weight: var(--cutframe-font-weight, inherit);
+  font-style: var(--cutframe-font-style, inherit);
+  letter-spacing: var(--cutframe-letter-spacing, normal);
+  container: cutframe / inline-size;
   isolation: isolate;
   transition: background-color 440ms ease, color 320ms ease, padding 360ms ease;
   clip-path: polygon(0 0, calc(100% - var(--cf-cut)) 0, 100% var(--cf-cut), 100% 100%, var(--cf-cut) 100%, 0 calc(100% - var(--cf-cut)));
@@ -326,8 +330,8 @@ media-fullscreen-button:not([data-fullscreen]) .when-fullscreen, media-fullscree
 }
 .cutframe[data-fullscreen][data-controls-hidden] { --media-caption-track-y: 0px; cursor: none; }
 .cutframe[data-fullscreen] .cf-video { object-fit: contain; background: #000; }
-@media (max-width: 760px) { .cf-dock-title { display: none; } }
-@media (max-width: 760px) {
+@container cutframe (max-width: 760px) { .cf-dock-title { display: none; } }
+@container cutframe (max-width: 760px) {
   .cf-dock { padding: 4px 12px 12px 16px; }
   .cf-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 8px; }
   .cf-key { width: 35px; height: 40px; }

@@ -2,13 +2,16 @@ import { createCutframe, createPageAdapter } from './cutframe.js';
 import { videoSource, videoPoster, videoTitle, videoSubtitle, previewSource, castSource, skinLanguage, chaptersSource, captionTracks } from './config.js';
 import { createThemeTransition } from './theme-transition.js';
 import { environments } from './environments.js';
+import { createStyleLab } from './style-lab.js';
 import './page.css';
 
 const page = document.getElementById('page');
 const player = createCutframe(document.getElementById('player-mount'), {
   source: videoSource, poster: videoPoster, title: videoTitle, subtitle: videoSubtitle, previewSource, castSource, chaptersSource, captionTracks, language: skinLanguage, keyboardTarget: 'document',
 });
+const styleLab = createStyleLab(page, player.surface);
 const adapter = createPageAdapter(page, player.surface, profile => {
+  styleLab.report(profile);
   const rows = document.getElementById('palette-proof');
   rows.replaceChildren();
   for (const [role, value] of Object.entries({ surface: profile.surface, foreground: profile.foreground, accent: profile.accent })) {
@@ -33,6 +36,7 @@ function applyTheme(name) {
   page.className = `page theme-${name}`;
   document.getElementById('environment-top').innerHTML = environment.top;
   document.getElementById('environment-bottom').innerHTML = environment.bottom;
+  styleLab.setActive(name === 'lab');
   document.querySelector('meta[name="theme-color"]').content = environment.color;
   document.querySelectorAll('[data-theme]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.theme === name)));
   adapter.refresh();
