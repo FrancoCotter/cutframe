@@ -1,0 +1,92 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutframe source integration and lens checks</title>
+<style>body{margin:12px;background:#eeeade;color:#252d29;font:16px Georgia}main{background:#eeeade;color:#252d29}a{color:#256346}#mount{max-width:100%}pre{white-space:pre-wrap;font:12px monospace}</style>
+<button id="run">Run integration and lens checks</button><pre id="report" data-state="idle">Ready</pre>
+<main id="host"><h1>Independent host page</h1><a href="#host">Page accent</a><i data-lucide="settings" id="host-icon"></i><div id="mount"></div></main>
+<script type="module">
+import { createCutframe, createPageAdapter } from '/src/cutframe.js';
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw Error(message); };
+const until = async (check, message) => {
+  const start = performance.now();
+  while (!check()) { if (performance.now() - start > 7000) throw Error(message); await delay(20); }
+};
+document.querySelector('#run').onclick = async () => {
+  const report = document.querySelector('#report');
+  report.dataset.state = 'running';
+  const mount = document.querySelector('#mount'), host = document.querySelector('#host');
+  const rows = [];
+  let player, adapter;
+  try {
+    const decoderCount = document.querySelectorAll('body > video').length;
+    player = createCutframe(mount, { source: '/media/steel/preview.mp4', title: 'Local preview integration' });
+    const { surface, video, lens } = player;
+    await until(() => video.readyState >= 2, 'Main MP4 did not load');
+    video.pause();
+    const slider = surface.querySelector('.cf-timeline'), card = surface.querySelector('.cf-lens');
+    const canvas = card.querySelector('canvas');
+    assert(surface.querySelectorAll('svg').length >= 10, 'Icons depend on demo initialization');
+    assert(document.querySelector('#host-icon').tagName === 'I', 'Host icon was rewritten');
+    assert(!surface.querySelector('media-hotkey[target="document"]'), 'Hotkeys escaped the player');
+    let adaptations = 0;
+    adapter = createPageAdapter(host, surface, () => adaptations++);
+    adapter.refresh();
+    await until(() => adaptations > 0, 'Adapter did not run');
+    const initial = adaptations;
+    await delay(150);
+    assert(adaptations === initial, 'Adapter reacts to its own player mutations');
+    assert(adapter.profile.sampleCount > 0, 'Generic host content was excluded');
+    rows.push({ check: 'standalone import, icons, scoped hotkeys, generic host adaptation', adaptations, samples: adapter.profile.sampleCount });
+    const send = (type, ratio = .5, pointerId = 1) => {
+      const box = slider.getBoundingClientRect();
+      (type === 'pointerdown' ? slider : window).dispatchEvent(new PointerEvent(type, { pointerId, isPrimary: true, button: 0, clientX: box.left + ratio * box.width, bubbles: true }));
+    };
+    lens.setChapters([{ start: 0, end: video.duration, title: 'A deliberately long chapter name for narrow frames' }]);
+    for (const width of [980, 360, 280]) {
+      mount.style.width = width + 'px';
+      await delay(30);
+      for (const ratio of [0, .5, 1]) {
+        send('pointerdown', ratio);
+        await delay(340);
+        const box = card.getBoundingClientRect(), track = slider.getBoundingClientRect(), frame = surface.getBoundingClientRect();
+        const anchor = parseFloat(card.style.getPropertyValue('--cf-lens-anchor'));
+        assert(box.left >= frame.left - 1 && box.right <= frame.right + 1, 'Lens escaped horizontally');
+        assert(box.top >= frame.top + 6, 'Lens clipped above the player');
+        assert(Math.abs(box.left + anchor - (track.left + ratio * track.width)) < 1, 'Tether detached from seek point');
+        const cursor = card.querySelector('.cf-ruler-cursor').getBoundingClientRect();
+        assert(Math.abs(cursor.left + cursor.width / 2 - (box.left + box.width / 2)) < 1, 'Ruler cursor left the central axis');
+        send('pointerup', ratio, 99);
+        assert(surface.dataset.scrubbing === 'true', 'Another pointer ended the drag');
+        send('pointerup', ratio);
+        assert(!surface.dataset.scrubbing, 'Release kept scrubbing active');
+        await delay(230);
+        assert(card.hidden, 'Lens did not fold away');
+        rows.push({ check: 'geometry and release', viewport: innerWidth, mount: Math.round(frame.width), ratio, lens: [Math.round(box.width), Math.round(box.height)], topInset: Math.round(box.top - frame.top) });
+      }
+    }
+    mount.style.width = '980px';
+    send('pointerdown', 105 / video.duration);
+    await until(() => card.dataset.loading === 'false' && Math.abs(Number(canvas.dataset.time) - 105) < .075, 'No decoded frame at 105');
+    send('pointerup');
+    await delay(50);
+    send('pointerdown', 196.5 / video.duration);
+    await delay(170);
+    assert(!card.hidden && card.dataset.state === 'open', 'Old release hid the second drag');
+    await until(() => card.dataset.loading === 'false' && Math.abs(Number(canvas.dataset.time) - 196.5) < .075, 'No decoded frame at 196.5');
+    send('pointercancel'); await delay(230); assert(card.hidden, 'Pointer cancel did not close');
+    send('pointerdown'); window.dispatchEvent(new Event('blur')); assert(card.hidden, 'Window blur did not close immediately');
+    rows.push({ check: 'real frame decode, quick regrab, cancel and blur', decoded: Number(canvas.dataset.frameTime) });
+    adapter.destroy(); adapter = null;
+    player.destroy(); player.destroy();
+    assert(!mount.children.length, 'Destroy left the player mounted');
+    assert(document.querySelectorAll('body > video').length === decoderCount, 'Preview decoder leaked');
+    player = createCutframe(mount, { source: '/media/steel/preview.mp4' });
+    player.destroy();
+    assert(!mount.children.length, 'Remount cleanup failed');
+    rows.push({ check: 'destroy and remount', previewDecoders: document.querySelectorAll('body > video').length });
+    report.dataset.state = 'passed'; report.textContent = JSON.stringify({ state: 'passed', rows });
+  } catch (error) {
+    report.dataset.state = 'failed'; report.textContent = JSON.stringify({ state: 'failed', error: error.message, rows });
+  } finally { adapter?.destroy(); player?.destroy(); }
+};
+</script></html>

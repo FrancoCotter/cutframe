@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Cutframe controls checks</title>
+<style>body{margin:20px;background:#eeeade;color:#252d29;font:16px Georgia}#mount{width:min(1100px,100%)}pre{white-space:pre-wrap;font:12px monospace}</style>
+<button id="menus">Check settings and scrollbars</button><button id="quality">Check real quality switching</button>
+<button id="alignment">Check preview timeline alignment</button>
+<pre id="report" data-state="idle">Ready</pre><div id="mount"></div>
+<script type="module">
+import { createCutframe } from '/src/skin.js';
+import { steelDemo } from '/src/demo-media.js';
+import { createIcons, icons } from 'lucide';
+const { video, surface } = createCutframe(document.querySelector('#mount'), { ...steelDemo, captionTracks:steelDemo.captions, chaptersSource:steelDemo.chapters });
+createIcons({icons});
+const report=document.querySelector('#report');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const until=async(fn,label,ms=30000)=>{const start=performance.now();while(!fn()){if(performance.now()-start>ms)throw Error(label);await delay(25);}};
+const assert=(value,message)=>{if(!value)throw Error(message)};
+const record=rows=>report.textContent=JSON.stringify({state:'running',rows});
+async function run(task){report.dataset.state='running';const rows=[];try{await task(rows);report.dataset.state='passed';report.textContent=JSON.stringify({state:'passed',rows});}catch(e){report.dataset.state='failed';report.textContent=JSON.stringify({state:'failed',error:e.message,diagnostics:{width:video.videoWidth,height:video.videoHeight,time:video.currentTime,ready:video.readyState,paused:video.paused,engine:video.engineName,current:video.engine?.currentLevel,manual:video.engine?.manualLevel,next:video.engine?.nextLoadLevel,error:video.error?.message,levels:video.engine?.levels.map(l=>[l.width,l.height]),buffered:video.buffered?.length},rows});}}
+document.querySelector('#menus').onclick=()=>run(async rows=>{
+ await until(()=>surface.hasAttribute('data-has-captions'),'Missing caption tracks');
+ const menu=surface.querySelector('.cf-settings-menu');
+ const trigger=surface.querySelector('.cf-settings');
+ const content=surface.querySelector('.cf-settings-root');
+ const pageScrollbar=getComputedStyle(document.documentElement).scrollbarColor;
+ for(let iteration=0;iteration<3;iteration++){
+  trigger.click(); const frames=[]; const start=performance.now();
+  while(performance.now()-start<450){await new Promise(requestAnimationFrame);const style=getComputedStyle(content);frames.push({overflow:content.scrollHeight-content.clientHeight,mode:style.overflowY,height:content.clientHeight});}
+  const visibleOverflow=frames.filter(f=>f.overflow>1 && ['auto','scroll'].includes(f.mode));
+  rows.push({check:'settings opening '+iteration,frames:frames.length,scrollbarFrames:visibleOverflow.length,first:frames[0],last:frames.at(-1)});record(rows);
+  assert(!visibleOverflow.length,'Transient Settings scrollbar');
+  const caption=surface.querySelector('.cf-caption-switch');
+  const label=caption.querySelector('[data-cf-text]');
+  const glyph=caption.querySelector('svg');
+  assert(label.textContent==='Caption','Caption label');
+  assert(label.getBoundingClientRect().left-glyph.getBoundingClientRect().right<16,'Caption label not beside icon');
+  assert(getComputedStyle(caption).clipPath.startsWith('polygon('),'Missing cut shape');
+  assert(!surface.querySelector('.cf-settings-section'),'Viewing heading remains');
+  surface.querySelector('.cf-caption-language-trigger').click();
+  await until(()=>surface.querySelector('.cf-caption-options').getBoundingClientRect().height>0,'Language menu hidden'); await delay(240);
+  const group=surface.querySelector('.cf-caption-options');
+  const items=[...group.querySelectorAll('media-menu-radio-item')];
+  assert(items.some(i=>i.value==='off'),'No Off option');
+  items.find(i=>i.textContent.includes('Français')).click();await delay(100);
+  assert([...video.textTracks].some(t=>t.language==='fr' && t.mode==='showing'),'French did not enable');
+  if(!menu.hasAttribute('data-open')) {trigger.click();await delay(380);surface.querySelector('.cf-caption-language-trigger').click();await delay(240);}
+  [...group.querySelectorAll('media-menu-radio-item')].find(i=>i.value==='off').click();await delay(100);
+  assert(![...video.textTracks].some(t=>t.mode==='showing'),'Off did not disable captions');
+  assert(!caption.checked,'Caption toggle not synced with Off');
+  rows.push({check:'Off sync',off:true,language:surface.querySelector('.cf-caption-language-value').textContent,playerScrollbar:getComputedStyle(content).scrollbarColor,pageScrollbar:getComputedStyle(document.documentElement).scrollbarColor});record(rows);
+  assert(getComputedStyle(document.documentElement).scrollbarColor===pageScrollbar,'Page scrollbar changed');
+  menu.close();await delay(220);
+ }
+});
+document.querySelector('#quality').onclick=()=>{
+ video.muted=true;const play=video.play();
+ run(async rows=>{
+ await play;await until(()=>video.readyState>=2,'Video did not decode');video.pause();video.currentTime=105;await until(()=>!video.seeking && Math.abs(video.currentTime-105)<.2,'Initial seek');
+ const group=surface.querySelector('media-quality-radio-group');
+ const menu=surface.querySelector('.cf-quality-menu');
+ const choose=async(height,playing)=>{
+  surface.querySelector('.cf-quality').click();await delay(380);
+  const item=[...group.querySelectorAll('media-menu-radio-item')].find(i=>i.querySelector('[data-part="label"]')?.textContent===height+'p');
+  assert(item,'No real '+height+'p option'); const begin=performance.now(),time=video.currentTime;
+  item.click(); await until(()=>video.videoHeight===height && video.readyState>=2 && surface.querySelector('.cf-quality-active').textContent===video.videoWidth+' × '+video.videoHeight,'Decoded resolution/header did not become '+height+'p');
+  rows.push({check:'quality',selected:height,decoded:video.videoWidth+' × '+video.videoHeight,paused:video.paused,timeDelta:Math.round((video.currentTime-time)*100)/100,ms:Math.round(performance.now()-begin),header:surface.querySelector('.cf-quality-active').textContent});record(rows);
+  assert(video.paused===!playing,'Playback state changed');
+  if(!playing)assert(Math.abs(video.currentTime-time)<.2,'Paused timestamp changed');
+  assert(surface.querySelector('.cf-quality-active').textContent===video.videoWidth+' × '+video.videoHeight,'Header does not show decoded resolution');
+  menu.close();await delay(200);
+ };
+ await choose(720,false);await choose(1080,false);
+ await video.play();await choose(360,true);await choose(1080,true);
+ surface.querySelector('.cf-quality').click();await delay(380);[...group.querySelectorAll('media-menu-radio-item')].find(i=>i.value==='auto').click();await delay(100);
+ assert(video.engine.autoLevelEnabled,'Auto did not restore ABR');rows.push({check:'Auto',adaptive:video.engine.autoLevelEnabled});video.pause();
+ });
+};
+document.querySelector('#alignment').onclick=()=>run(async rows=>{
+ const preview=document.createElement('video');preview.muted=true;preview.preload='auto';preview.src=steelDemo.previewSource;
+ preview.style.cssText='position:fixed;width:2px;height:2px;opacity:0;pointer-events:none';document.body.append(preview);
+ const canvas=document.createElement('canvas');canvas.width=336;canvas.height=140;const context=canvas.getContext('2d',{willReadFrequently:true});
+ const pixels=element=>{context.drawImage(element,0,0,336,140);return context.getImageData(0,0,336,140).data;};
+ try{
+ await until(()=>video.readyState>=2 && preview.readyState>=1,'Decoders not ready');video.pause();
+ for(const time of [105,196.5]){
+  video.currentTime=time;await until(()=>!video.seeking && video.readyState>=2,'Main seek');await delay(80);
+  const main=pixels(video.target || video);const errors=[];
+  for(const offset of [-3,-2,-1,0,1,2,3]){
+   preview.currentTime=time+offset/24;await until(()=>!preview.seeking && preview.readyState>=2,'Preview seek');await delay(40);
+   const frame=pixels(preview);let error=0;for(let i=0;i<frame.length;i+=4)error+=Math.abs(main[i]-frame[i])+Math.abs(main[i+1]-frame[i+1])+Math.abs(main[i+2]-frame[i+2]);
+   errors.push({offsetFrames:offset,error:Math.round(error/(336*140*3)*100)/100});
+  }
+  const best=[...errors].sort((a,b)=>a.error-b.error)[0];rows.push({check:'Preview alignment',time,best,errors});record(rows);
+  assert(Math.abs(best.offsetFrames)<=1,'Preview differs by multiple frames');
+ }
+ }finally{preview.pause();preview.removeAttribute('src');preview.load();preview.remove();}
+});
+</script></html>

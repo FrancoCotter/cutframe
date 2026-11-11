@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#eeeade" />
+    <meta name="description" content="Cutframe — a Video.js v10 skin that inherits its page’s visual language while keeping its own cut-corner silhouette." />
+    <title>Cutframe — One frame, different worlds.</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <main id="page" class="page theme-paper">
+      <div class="showcase-bar">
+        <span class="showcase-name">CUTFRAME <span>Skin study</span></span>
+        <div class="theme-switcher" role="group" aria-label="Page design">
+          <button type="button" data-theme="paper" aria-pressed="true">Journal</button>
+          <button type="button" data-theme="punch" aria-pressed="false">Studio</button>
+          <button type="button" data-theme="night" aria-pressed="false">Cinema</button>
+        </div>
+      </div>
+      <div id="environment-top" class="environment-top" aria-label="Page environment"></div>
+      <section id="player-mount" class="player-mount" aria-label="Cutframe player"></section>
+      <div id="environment-bottom" class="environment-bottom"></div>
+      <div class="study-caption" data-palette-ignore>
+        <p>Same frame. Different worlds.</p>
+        <span>Drag to explore. Arrow keys to seek.</span>
+      </div>
+      <details class="palette-notes" data-palette-ignore><summary>How this player adapts</summary><p>Cutframe reads the page’s text, links, controls and surfaces. It groups similar colors, then chooses a readable palette by visual role and contrast. It does not average the page into one color or sample colors from the video.</p><span id="palette-count"></span><ul id="palette-proof"></ul></details>
+      <div class="credits" data-palette-ignore><span>Cutframe · Video.js v10</span><a href="https://mango.blender.org/about/" target="_blank" rel="noreferrer">Tears of Steel · Blender Foundation · CC BY 3.0 ↗</a></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Cutframe frame decoding check</title>
+<style>#surface{width:1000px}.cf-timeline{position:relative;height:36px}.cf-lens{width:176px}.cf-lens-ruler{height:38px}</style>
+<button id="run">Run frame checks</button><pre id="report" data-state="idle">Ready</pre>
+<div id="surface"><div class="cf-timeline"><div class="cf-lens" hidden><canvas width="320" height="133"></canvas><span class="cf-lens-time"></span><span class="cf-lens-wait"></span><div class="cf-lens-chapter"></div><div class="cf-lens-ruler"></div></div></div></div>
+<script type="module">
+import { bindTimeLens } from '/src/preview.js';
+import { steelDemo } from '/src/demo-media.js';
+const report = document.querySelector('#report');
+document.querySelector('#run').addEventListener('click', async () => {
+  document.querySelector('#run').disabled = true;
+  report.dataset.state = 'running';
+  const surface = document.querySelector('#surface');
+  const slider = surface.querySelector('.cf-timeline');
+  const lens = surface.querySelector('.cf-lens');
+  const canvas = surface.querySelector('canvas');
+  const duration = 734.167;
+  const binding = bindTimeLens(surface, { duration }, steelDemo.previewSource);
+  const rows = [];
+  try {
+    for (const time of [23, 105, 196.5, 500]) {
+      const box = slider.getBoundingClientRect();
+      const event = new PointerEvent(rows.length ? 'pointermove' : 'pointerdown', { pointerId: 1, isPrimary: true, button: 0, clientX: box.left + time / duration * box.width, bubbles: true });
+      (rows.length ? window : slider).dispatchEvent(event);
+      const begin = performance.now();
+      while (lens.dataset.loading !== 'false' || Math.abs(Number(canvas.dataset.time) - time) > .075) {
+        if (performance.now() - begin > 7000) throw Error(`No canvas frame at ${time}: readyState=${binding.decoder.readyState}, currentTime=${binding.decoder.currentTime}, wait=${surface.querySelector('.cf-lens-wait').textContent}`);
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let sum = 0, square = 0, hash = 0;
+      const count = pixels.length / 4;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const value = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+        sum += value; square += value * value;
+        hash = (hash * 31 + pixels[i] + pixels[i + 1] * 3 + pixels[i + 2] * 7) >>> 0;
+      }
+      const variance = square / count - (sum / count) ** 2;
+      if (variance < 10) throw Error(`Canvas is blank at ${time}`);
+      rows.push({ requested: time, decoded: Number(canvas.dataset.frameTime), width: canvas.width, height: canvas.height, variance: Math.round(variance), hash, ms: Math.round(performance.now() - begin) });
+      report.textContent = JSON.stringify({ state: 'running', rows });
+    }
+    if (new Set(rows.map(row => row.hash)).size !== rows.length) throw Error('Different timestamps returned an unchanged image');
+    report.dataset.state = 'passed';
+    report.textContent = JSON.stringify({ state: 'passed', rows });
+  } catch (error) {
+    report.dataset.state = 'failed'; report.textContent = JSON.stringify({ state: 'failed', error: error.message, rows });
+  } finally { window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 })); binding.destroy(); }
+});
+</script></html>
