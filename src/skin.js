@@ -162,6 +162,12 @@ export function createCutframe(mount, { source, poster, previewSource = source, 
   }
   const provider = mount.querySelector('video-player');
   const video = mount.querySelector('.cf-video');
+  const focusInput = new AbortController();
+  surface.addEventListener('pointerdown', () => surface.setAttribute('data-pointer-input', ''), { capture: true, signal: focusInput.signal });
+  // Listen on the document so Tab into the player also restores keyboard rings.
+  surface.ownerDocument.addEventListener('keydown', event => {
+    if (!['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) surface.removeAttribute('data-pointer-input');
+  }, { capture: true, signal: focusInput.signal });
   provider.setAttribute('content-title', title);
   surface.querySelector('[data-film-title]').textContent = title.toUpperCase();
   surface.querySelector('[data-film-subtitle]').textContent = subtitle;
@@ -256,11 +262,13 @@ export function createCutframe(mount, { source, poster, previewSource = source, 
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      focusInput.abort();
       unsubscribe();
       syncState = () => {};
       video.removeEventListener('loadedmetadata', syncAspect);
       video.removeEventListener('resize', syncAspect);
       lens.destroy();
+      chapters.destroy();
       controls.destroy();
       settingsState.destroy();
       qualityState.destroy();

@@ -121,7 +121,6 @@ media-fullscreen-button:not([data-fullscreen]) .when-fullscreen, media-fullscree
 .cf-chapter-option { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 36px; padding: 7px 8px; font-size: 12px; cursor: pointer; }
 .cf-chapter-option[data-highlighted] { background: color-mix(in srgb, var(--cf-ink) 9%, transparent); }
 .cf-chapter-option[data-current] { background: var(--cf-ink); color: var(--cf-panel); }
-.cf-chapter-option:focus-visible, .cf-chapter-option[data-highlighted=""] { outline: 2px solid currentColor; outline-offset: -3px; }
 .cf-chapter-time { font-size: 10px; font-variant-numeric: tabular-nums; }
 .cf-chapter-name { line-height: 1.35; }
 .cf-rate { width: 62px; gap: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -179,7 +178,6 @@ media-fullscreen-button:not([data-fullscreen]) .when-fullscreen, media-fullscree
 .cf-speed-option { position: relative; display: flex; align-items: center; justify-content: center; min-height: 40px; border: 0; padding: 8px 4px; font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--cf-ink); background: color-mix(in srgb, var(--cf-ink) 7%, transparent); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px)); transition: background var(--cf-palette-transition, 130ms); }
 .cf-speed-option[data-highlighted] { background: color-mix(in srgb, var(--cf-ink) 16%, transparent); }
 .cf-speed-option[aria-checked="true"] { color: var(--cf-panel); background: var(--cf-ink); }
-.cf-speed-option:focus-visible, .cf-speed-option[data-highlighted=""] { outline: 2px solid currentColor; outline-offset: -4px; }
 .cf-option-check { position: absolute; right: 4px; top: 2px; font: 9px Arial, sans-serif; opacity: 0; }
 .cf-speed-option[aria-checked="true"] .cf-option-check { opacity: 1; }
 .cf-settings svg { transition: rotate 220ms ease; }
@@ -224,7 +222,6 @@ media-fullscreen-button:not([data-fullscreen]) .when-fullscreen, media-fullscree
 .cf-settings-row > span { min-width: 0; text-align: left; }
 .cf-settings-row > :last-child:not(:nth-child(2)) { justify-self: end; }
 .cf-settings-row[data-highlighted], .cf-settings-row[data-active] { background: color-mix(in srgb, var(--cf-ink) 9%, transparent); }
-.cf-settings-row:focus-visible, .cf-settings-row[data-highlighted=""] { outline: 2px solid var(--cf-accent); outline-offset: -3px; }
 .cf-settings-row[aria-disabled="true"] { opacity: .45; cursor: default; }
 .cf-caption-language-trigger { display: none; }
 .cutframe[data-has-captions] .cf-caption-language-trigger { display: grid; }
@@ -241,8 +238,10 @@ media-fullscreen-button:not([data-fullscreen]) .when-fullscreen, media-fullscree
 .cf-caption-option { min-height: 40px; padding-inline: 16px; }
 /* Every interactive menu surface uses the same cuts, in every state. */
 .cf-key, .cf-chapter-option, .cf-speed-option, .cf-settings-row { position: relative; clip-path: var(--cf-control-shape); }
-:is(.cf-key, .cf-chapter-option, .cf-speed-option, .cf-settings-row):is(:focus-visible, [data-highlighted=""]) { outline: none; }
-:is(.cf-key, .cf-chapter-option, .cf-speed-option, .cf-settings-row):is(:focus-visible, [data-highlighted=""])::after {
+/* Automatic menu highlighting also happens on pointer open. Gate rings by
+   input method too: browsers may retain :focus-visible after a pointer click. */
+:is(.cf-key, .cf-chapter-option, .cf-speed-option, .cf-settings-row):focus-visible { outline: none; }
+.cutframe:not([data-pointer-input]) :is(.cf-key, .cf-chapter-option, .cf-speed-option, .cf-settings-row):focus-visible::after {
   content: '';
   position: absolute;
   inset: 0;

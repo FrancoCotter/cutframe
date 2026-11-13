@@ -29,6 +29,26 @@ export function bindChapters(surface, provider, lens, locale) {
   let chapters = [];
   let active = -2;
   let language = '';
+  let openFrame = 0;
+
+  function focusCurrentChapter(event) {
+    cancelAnimationFrame(openFrame);
+    if (!event.detail.open) return;
+    // Wait for the popup to become visible, before Video.js's first-item fallback.
+    openFrame = requestAnimationFrame(() => {
+      openFrame = 0;
+      if (event.defaultPrevented || !menu.open) return;
+      const current = list.querySelector('[data-current]');
+      if (!current) return;
+      menu.menu?.highlight(current, { preventScroll: true });
+      // Reveal the chapter inside the list without scrolling the host page.
+      const row = current.getBoundingClientRect();
+      const viewport = list.getBoundingClientRect();
+      if (row.top < viewport.top) list.scrollTop += row.top - viewport.top;
+      else if (row.bottom > viewport.bottom) list.scrollTop += row.bottom - viewport.bottom;
+    });
+  }
+  menu.addEventListener('open-change', focusCurrentChapter);
 
   function build() {
     list.replaceChildren();
@@ -55,6 +75,10 @@ export function bindChapters(surface, provider, lens, locale) {
   }
 
   return {
+    destroy() {
+      cancelAnimationFrame(openFrame);
+      menu.removeEventListener('open-change', focusCurrentChapter);
+    },
     sync(cues, time, duration) {
       const nextLanguage = locale.text('chapters');
       if (cues !== sourceCues || duration !== sourceDuration || language !== nextLanguage) {
