@@ -2,6 +2,8 @@
 
 Start with the working example in [README.md](README.md). Import `createCutframe` and `createPageAdapter` from the browser entry `src/cutframe.js`; the demo pages and their media defaults are separate.
 
+Connect the page adapter once to enable automatic DOM/CSS and readable Canvas/WebGL adaptation. You do not need separate page-theme presets, required color tokens or a second WebGL adapter. `createCutframe()` does not create the adapter internally; without that connection the player uses its fallback appearance. Automatic adaptation covers the supported sources described below, rather than every possible browser-composited background.
+
 ## Player options
 
 Pass these as the second argument to `createCutframe(mount, options)`:
@@ -22,9 +24,9 @@ Quality options follow the actual stream renditions. Chapters and subtitles use 
 
 ## Appearance and cleanup
 
-Connect `createPageAdapter(pageContent, player.surface)` to the host content and call `adapter.refresh()`. Cutframe excludes itself from sampling. Add `data-palette-ignore` to unrelated host UI. Call `refresh()` after stylesheet-only changes.
+Connect `createPageAdapter(pageContent, player.surface)` to representative surrounding content and call `adapter.refresh()`. Existing page styles provide the inputs; no page restyling is required. Cutframe excludes itself from sampling. Add `data-palette-ignore` to unrelated host UI within that content. The adapter observes content and ancestor class/style changes; call `refresh()` after stylesheet-only changes and `refresh({ reset: true })` after route or scene structure changes.
 
-For explicit styling, set `--cutframe-background`, `--cutframe-surface`, `--cutframe-foreground`, `--cutframe-muted`, `--cutframe-accent`, `--cutframe-accent-foreground`, and `--cutframe-font` on the mount. When the adapter is active, `--media-accent-color` and `--media-accent-text-color` override its accent pair.
+Without the adapter, set `--cutframe-background`, `--cutframe-surface`, `--cutframe-foreground`, `--cutframe-muted`, `--cutframe-accent`, `--cutframe-accent-foreground`, and `--cutframe-font` on the mount for explicit styling. With the adapter active, it writes its derived palette and typography on `player.surface`, taking precedence over inherited mount tokens. Use the [host color overrides](#manual-color-overrides) to customize its palette. Legacy `--media-accent-color` and `--media-accent-text-color` override its accent pair directly.
 
 The page adapter also follows the dominant body font’s weight, italic style and letter spacing through `--cutframe-font-weight`, `--cutframe-font-style` and `--cutframe-letter-spacing`. It preserves control font sizes for usability. Responsive controls follow the player’s container width, including narrow embeds on a wide page. Use the demo’s Style Lab to inspect the resulting palette and typography with custom host styles.
 
@@ -109,7 +111,7 @@ Use opaque hex/RGB colors. `muted` and `accentForeground` are also accepted (`--
 
 ### Limits and fallback
 
-This is a best-effort adapter, not measured 90% coverage or universal screen capture. Automatic pixel reads currently support one readable, opaque, axis-aligned HTML canvas. They do not reconstruct multiple layered canvases, CSS gradients/filters/blending, image/video backgrounds, DOM overlay effects, rotated/perspective canvases or inaccessible iframe contents. A 3D model drawn *inside* an ordinary canvas is supported; a canvas transformed into 3D by CSS is not. Origin-tainted pixel reads are rejected with a retry backoff. Transparent frames are rejected instead of being mistaken for black. These cases expose a diagnostic status; use explicit colors or a suitable source if the fallback does not suit the page.
+Automatic adaptation does not guarantee a visual match on every website, and no coverage percentage has been measured. Automatic pixel reads currently support one readable, opaque, axis-aligned HTML canvas. They do not reconstruct multiple layered canvases, CSS gradients/filters/blending, image/video backgrounds, DOM overlay effects, rotated/perspective canvases or inaccessible iframe contents. A 3D model drawn *inside* an ordinary canvas is supported; a canvas transformed into 3D by CSS is not. Origin-tainted pixel reads are rejected with a retry backoff. Transparent frames are rejected instead of being mistaken for black. Sampling diagnostics describe source discovery and read failures; they cannot prove that the selected canvas matches the final visible composition. Use explicit colors or a suitable source if the fallback does not suit the page.
 
 A last good palette can be held after a read failure (`scene-held`). If no valid scene is available, ordinary pages use DOM/CSS; uncertain backgrounds use an opaque neutral fallback (`stable-surface`). Use `data-cutframe-backdrop="dynamic"` on the content wrapper/ancestor for backgrounds automatic inspection cannot identify. `{ mode: 'stable' }` or `adapter.setMode('stable')` deliberately disables pixel adaptation; `setMode('auto')` restores it.
 
